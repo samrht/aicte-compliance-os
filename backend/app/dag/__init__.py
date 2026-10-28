@@ -359,6 +359,34 @@ def _claim(s: Session, node_id: int, src: str, dst: str, **values) -> bool:
     return res.rowcount == 1
 
 
+def _hand_to_human(s: Session, app: Application, inst: Institution, failed: WorkflowNode) -> None:
+    """A step crashed: skip what was still queued and park the case with a regulator.
+
+    Without this a failed step counted as finished, so later steps ran on
+    missing evidence and a low-risk default could auto-ratify the case.
+    """
+    nodes = _nodes(s, app.id)
+    gate = next((n for n in nodes if n.key in ("review", "decision") and n.state == "pending"), None)
+    for n in nodes:
+        if n.state == "pending" and n is not gate and n.key != "seal":
+            n.state, n.detail, n.finished_at = "skipped", f"Skipped: {LABELS[failed.key]} failed", now()
+            s.add(n)
+    if gate is None:
+        last = max(n.seq for n in nodes)
+        gate = WorkflowNode(application_id=app.id, key="review", label=LABELS["review"], seq=last + 1,
+                            depends_on=[failed.key])
+        s.add(gate)
+        if not any(n.key == "seal" for n in nodes):
+            s.add(WorkflowNode(application_id=app.id, key="seal", label=LABELS["seal"], seq=last + 2,
+                               depends_on=["review"]))
+    gate.state = "waiting"
+    gate.detail = f"{LABELS[failed.key]} failed; a regulator must decide"
+    app.status = "awaiting_review"
+    if inst.status != "lockdown":
+        inst.status = "under_review"
+    s.add_all([gate, app, inst])
+
+
 def _execute(node_id: int) -> None:
     with session() as s:
         serialize(s)              # steps write audit entries; keep them in commit order
@@ -369,9 +397,21 @@ def _execute(node_id: int) -> None:
         app = s.get(Application, node.application_id)
         inst = s.get(Institution, app.institution_id)
         try:
-            state, detail = HANDLERS[node.key](s, app, inst)
-        except Exception as exc:          # a broken node must not kill the case
-            state, detail = "failed", f"error: {exc}"
+            with s.begin_nested():        # a crash undoes the step's partial writes
+                state, detail = HANDLERS[node.key](s, app, inst)
+        except Exception as exc:          # a broken step must not kill the case...
+            detail = f"error: {exc}"
+            if node.key in ("decision", "review"):
+                state = "waiting"         # the human step itself: leave it with a regulator
+                app.status = "awaiting_review"
+            else:
+                state = "failed"          # ...nor let it count as done: a human takes over
+                if node.key != "seal":
+                    _hand_to_human(s, app, inst, node)
+            raise_alert(s, kind="processing_error", severity="critical", institution_id=inst.id,
+                        application_id=app.id, title=f"Processing failed: {inst.name}",
+                        message=f"{LABELS[node.key]} could not complete ({exc}). "
+                                "The case is waiting for a regulator.")
         node.state, node.detail = state, detail
         if state != "waiting":
             node.finished_at = now()

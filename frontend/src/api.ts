@@ -34,11 +34,21 @@ export interface Application {
   nodes?: Node[]; findings?: Finding[]; alerts?: Alert[];
 }
 
+/** The server's error message. FastAPI validation errors arrive as a list. */
+async function errorText(r: Response, fallback: string): Promise<string> {
+  try {
+    const d = (await r.json()).detail;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) return d.map((e) => `${(e.loc ?? []).slice(-1)[0] ?? "input"}: ${e.msg}`).join("; ");
+  } catch { /* body was not JSON */ }
+  return fallback;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`/api${path}`, init);
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`;
-    try { msg = (await r.json()).detail ?? msg; } catch { /* body was not JSON */ }
+    msg = await errorText(r, msg);
     throw new Error(msg);
   }
   return r.json();
@@ -104,7 +114,7 @@ async function adminFetch(path: string, init: RequestInit = {}): Promise<Respons
   if (r.status === 401) { setAdmin(null); throw new AdminAuthError("Your admin session has expired."); }
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`;
-    try { msg = (await r.json()).detail ?? msg; } catch { /* body was not JSON */ }
+    msg = await errorText(r, msg);
     throw new Error(msg);
   }
   return r;
@@ -132,7 +142,7 @@ export const admin = {
       body: JSON.stringify({ username, password }) });
     if (!r.ok) {
       let msg = "Sign-in failed.";
-      try { msg = (await r.json()).detail ?? msg; } catch { /* body was not JSON */ }
+      msg = await errorText(r, msg);
       throw new Error(msg);
     }
     const s = (await r.json()) as AdminSession;
@@ -152,8 +162,8 @@ export const admin = {
       body: JSON.stringify({ name, username, email, password }) });
     if (!r.ok) {
       let msg = "The request didn't go through.";
-      try { msg = (await r.json()).detail ?? msg; } catch { /* body was not JSON */ }
-      throw new Error(typeof msg === "string" ? msg : "Check the form and try again.");
+      msg = await errorText(r, msg);
+      throw new Error(msg);
     }
     return r.json();
   },

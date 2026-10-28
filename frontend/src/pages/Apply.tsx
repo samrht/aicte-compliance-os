@@ -52,7 +52,7 @@ export default function Apply() {
   }, [s.id]);
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
-  const detailsOk = Object.values(form).every((v) => v !== "" && Number(v) >= 0);
+  const detailsOk = Object.values(form).every((v) => v !== "" && Number(v) >= 0) && Number(form.students) >= 1;
   const evidenceOk = roster.length && photos.length && pdf.length;
 
   async function submit() {
@@ -88,10 +88,10 @@ export default function Apply() {
       {step === 0 && (
         <Panel title="Declared infrastructure">
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Total sanctioned intake (students)"><input className={input} type="number" value={form.students} onChange={set("students")} /></Field>
-            <Field label="Land area (acres)"><input className={input} type="number" step="0.1" value={form.land_acres} onChange={set("land_acres")} /></Field>
-            <Field label="Built-up area (m²)"><input className={input} type="number" value={form.builtup_sqm} onChange={set("builtup_sqm")} /></Field>
-            <Field label="Laboratories" hint="Instructional labs with equipment lists on file"><input className={input} type="number" value={form.labs} onChange={set("labs")} /></Field>
+            <Field label="Total sanctioned intake (students)"><input className={input} type="number" min={1} value={form.students} onChange={set("students")} /></Field>
+            <Field label="Land area (acres)"><input className={input} type="number" min={0} step="0.1" value={form.land_acres} onChange={set("land_acres")} /></Field>
+            <Field label="Built-up area (m²)"><input className={input} type="number" min={0} value={form.builtup_sqm} onChange={set("builtup_sqm")} /></Field>
+            <Field label="Laboratories" hint="Instructional labs with equipment lists on file"><input className={input} type="number" min={0} value={form.labs} onChange={set("labs")} /></Field>
           </div>
           <div className="mt-6 flex justify-end"><Button disabled={!detailsOk} onClick={() => setStep(1)}>Continue to evidence</Button></div>
         </Panel>

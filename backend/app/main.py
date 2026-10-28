@@ -120,10 +120,10 @@ def get_application(app_id: int, s: Session = Depends(get_session)) -> dict:
 @app.post("/api/applications")
 async def submit_application(
     institution_id: int = Form(...),
-    students: int = Form(...),
-    land_acres: float = Form(...),
-    builtup_sqm: float = Form(...),
-    labs: int = Form(...),
+    students: int = Form(..., gt=0),
+    land_acres: float = Form(..., ge=0),
+    builtup_sqm: float = Form(..., ge=0),
+    labs: int = Form(..., ge=0),
     kind: str = Form("Extension of Approval"),
     faculty_csv: Optional[UploadFile] = File(None),
     financials: Optional[UploadFile] = File(None),
@@ -133,6 +133,13 @@ async def submit_application(
         inst = s.get(Institution, institution_id)
         if not inst:
             raise HTTPException(404, "unknown institution")
+        # One open case at a time: a new submission used to reset the status,
+        # which let a locked-down institution walk out of lockdown.
+        open_case = s.exec(select(Application).where(Application.institution_id == inst.id)
+                           .where(Application.status.in_(["running", "awaiting_review"]))).first()
+        if open_case is not None:
+            raise HTTPException(409, f"Case {open_case.id} is still being processed; a new application "
+                                     "can be filed once it is decided.")
         a = Application(institution_id=inst.id, kind=kind, metrics={
             "students": students, "land_acres": land_acres, "builtup_sqm": builtup_sqm, "labs": labs})
         s.add(a)

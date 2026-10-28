@@ -303,9 +303,13 @@ def document_file(upload_id: int, _: str = Depends(auth.require_admin),
     media = {"photo": "image/jpeg", "financials": "application/pdf", "roster": "text/csv"}.get(up.kind)
     if up.kind == "photo" and up.filename.lower().endswith(".png"):
         media = "image/png"
+    # Headers must be Latin-1: send an ASCII fallback name plus the real one
+    # percent-encoded (RFC 6266 / 5987), so names like "परिसर.jpg" don't crash.
+    from urllib.parse import quote
+    fallback = up.filename.encode("ascii", "ignore").decode().replace('"', "").replace("\\", "") or "document"
+    disposition = f"inline; filename=\"{fallback}\"; filename*=UTF-8''{quote(up.filename, safe='')}"
     return Response(content=up.data, media_type=media or "application/octet-stream",
-                    headers={"Cache-Control": "private, max-age=300",
-                             "Content-Disposition": f'inline; filename="{up.filename}"'})
+                    headers={"Cache-Control": "private, max-age=300", "Content-Disposition": disposition})
 
 
 class Review(BaseModel):
