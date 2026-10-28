@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app import audit, config, dag, policy, risk
-from app.db import IS_SQLITE, clear_db, get_session, init_db, session
+from app.db import IS_SQLITE, get_session, init_db, rebuild, session
 from app.events import raise_alert
 from app.models import (Alert, Application, AuditEntry, DemoLock, FacultyToken, Finding,
                         Institution, TamperBackup, Upload, WorkflowNode, now)
@@ -413,8 +413,7 @@ def reset_demo() -> dict:
     if not _take_reset_lock():
         raise HTTPException(409, "A reset is already running; it takes about 20 seconds.")
     try:
-        clear_db()
-        seed()
+        rebuild(seed)
     finally:
         _release_reset_lock()
     return {"ok": True}
