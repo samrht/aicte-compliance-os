@@ -65,8 +65,9 @@ export default function Login() {
           </section>
         </div>
         <p className="mt-5 text-[14px] text-ink-2">
-          Platform administrator? <Link to="/admin/login" className="font-medium text-seal underline">Sign in to the admin panel</Link> for
-          live stats and document verification.
+          Platform administrator? <Link to="/admin/login" className="font-medium text-seal underline">Sign in to the admin panel</Link> or{" "}
+          <Link to="/admin/signup" className="font-medium text-seal underline">request an admin account</Link> for live stats and
+          document verification.
         </p>
         <p className="mt-6 text-[13px] text-ink-3">
           Prototype for Smart India Hackathon 2026, problem statement SIH26262. All institutions and people are fictional.
