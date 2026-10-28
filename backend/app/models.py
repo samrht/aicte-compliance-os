@@ -153,3 +153,16 @@ class DocumentReview(SQLModel, table=True):
     note: str = ""
     reviewer: str
     reviewed_at: datetime = Field(default_factory=now)
+
+
+class AdminAccount(SQLModel, table=True):
+    """An administrator who signed up. Kept across demo resets; needs approval to sign in."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    name: str
+    email: str
+    password_hash: str
+    status: str = "pending"      # pending | active | disabled
+    created_at: datetime = Field(default_factory=now)
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None

@@ -62,7 +62,10 @@ export default function AdminLogin() {
             </p>
           )}
         </form>
-        <Link to="/" className="mt-4 inline-block text-[14px] text-seal">Back to the portal sign-in</Link>
+        <div className="mt-4 flex flex-wrap justify-between gap-3 text-[14px]">
+          <span className="text-ink-2">New here? <Link to="/admin/signup" className="font-medium text-seal">Request an admin account</Link></span>
+          <Link to="/" className="text-seal">Portal sign-in</Link>
+        </div>
       </div>
     </div>
   );

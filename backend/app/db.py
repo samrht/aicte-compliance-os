@@ -24,7 +24,7 @@ else:
 # other request keeps reading the live one.
 _override: ContextVar[Engine | None] = ContextVar("engine_override", default=None)
 
-KEEP = {"demolock"}   # survives resets
+KEEP = {"demolock", "adminaccount"}   # survive resets
 
 
 def current_engine() -> Engine:

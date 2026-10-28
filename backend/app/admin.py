@@ -4,6 +4,7 @@ Everything except sign-in requires a token from POST /api/admin/login.
 """
 from __future__ import annotations
 
+import re
 import time
 from collections import Counter
 from datetime import timedelta
@@ -17,8 +18,8 @@ from sqlmodel import Session, select
 from app import audit, auth, config, dag
 from app.db import get_session, rebuild, session
 from app.events import raise_alert
-from app.models import (Alert, Application, AuditEntry, DemoLock, DocumentReview, Institution,
-                        Upload, now)
+from app.models import (AdminAccount, Alert, Application, AuditEntry, DemoLock, DocumentReview,
+                        Institution, Upload, now)
 
 router = APIRouter(prefix="/api/admin")
 
@@ -41,14 +42,93 @@ def admin_config() -> dict:
 
 @router.post("/login")
 def login(body: Login) -> dict:
-    if not auth.check_password(body.username, body.password):
+    username = body.username.strip().lower()
+    who = None
+    if auth.check_password(username, body.password):
+        who = auth.ADMIN_USER
+    else:
+        with session() as s:
+            acct = s.exec(select(AdminAccount).where(AdminAccount.username == username)).first()
+        if acct and auth.verify_password(body.password, acct.password_hash):
+            if acct.status == "pending":
+                raise HTTPException(403, "Your account is waiting for an administrator to approve it.")
+            if acct.status != "active":
+                raise HTTPException(403, "This account has been disabled. Ask an administrator.")
+            who = acct.username
+    if who is None:
         time.sleep(0.5)                  # blunt password guessing a little
         raise HTTPException(401, "That username and password don't match an administrator.")
-    token, exp = auth.issue_token(auth.ADMIN_USER)
+    token, exp = auth.issue_token(who)
     with session() as s:
-        audit.append(s, f"admin:{auth.ADMIN_USER}", "admin.login", "admin", {})
+        audit.append(s, f"admin:{who}", "admin.login", "admin", {})
         s.commit()
-    return {"token": token, "expires": exp, "username": auth.ADMIN_USER}
+    return {"token": token, "expires": exp, "username": who}
+
+
+class Signup(BaseModel):
+    name: str
+    username: str
+    email: str
+    password: str
+
+
+USERNAME = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@router.post("/signup")
+def signup(body: Signup) -> dict:
+    """Request an admin account. It stays pending until an active admin approves it."""
+    username, name, email = body.username.strip().lower(), body.name.strip(), body.email.strip().lower()
+    if not name:
+        raise HTTPException(422, "Enter your full name.")
+    if not USERNAME.match(username):
+        raise HTTPException(422, "Usernames are 3 to 32 characters: lowercase letters, digits, dot, dash or underscore.")
+    if not EMAIL.match(email):
+        raise HTTPException(422, "Enter a valid email address.")
+    pw = body.password
+    if len(pw) < 8 or not re.search(r"[A-Za-z]", pw) or not re.search(r"[^A-Za-z]", pw):
+        raise HTTPException(422, "Use at least 8 characters, with a letter and a number or symbol.")
+    if auth.is_owner(username):
+        raise HTTPException(409, "That username is taken.")
+    with session() as s:
+        if s.exec(select(AdminAccount).where(AdminAccount.username == username)).first():
+            raise HTTPException(409, "That username is taken.")
+        s.add(AdminAccount(username=username, name=name, email=email,
+                           password_hash=auth.hash_password(pw)))
+        audit.append(s, f"signup:{username}", "admin.signup_requested", f"admin:{username}", {"name": name})
+        s.commit()
+    return {"ok": True, "status": "pending"}
+
+
+@router.get("/accounts")
+def accounts(_: str = Depends(auth.require_admin), s: Session = Depends(get_session)) -> dict:
+    rows = s.exec(select(AdminAccount).order_by(AdminAccount.created_at.desc())).all()
+    return {
+        "owner": auth.ADMIN_USER,
+        "accounts": [{"id": a.id, "username": a.username, "name": a.name, "email": a.email,
+                      "status": a.status, "created_at": a.created_at, "approved_by": a.approved_by,
+                      "approved_at": a.approved_at} for a in rows],
+    }
+
+
+@router.post("/accounts/{account_id}/{action}")
+def account_action(account_id: int, action: str, who: str = Depends(auth.require_admin)) -> dict:
+    if action not in ("approve", "disable"):
+        raise HTTPException(404, "Unknown action.")
+    with session() as s:
+        acct = s.get(AdminAccount, account_id)
+        if acct is None:
+            raise HTTPException(404, "No such account.")
+        if acct.username == who and action == "disable":
+            raise HTTPException(409, "You can't disable your own account.")
+        acct.status = "active" if action == "approve" else "disabled"
+        if action == "approve":
+            acct.approved_by, acct.approved_at = who, now()
+        s.add(acct)
+        audit.append(s, f"admin:{who}", f"admin.account_{action}d", f"admin:{acct.username}", {})
+        s.commit()
+    return {"ok": True}
 
 
 @router.get("/me")
@@ -186,6 +266,7 @@ def stats(_: str = Depends(auth.require_admin), s: Session = Depends(get_session
             "rejected": sum(d["review"] is not None and d["review"]["status"] == "rejected" for d in docs),
             "by_kind": Counter(d["kind"] for d in pending),
         },
+        "pending_accounts": len(s.exec(select(AdminAccount).where(AdminAccount.status == "pending")).all()),
         "alerts": {"open": sum(not a.acknowledged for a in alerts),
                    "critical": sum(not a.acknowledged and a.severity == "critical" for a in alerts)},
         "system": {"db_ms": db_ms, "region": __import__("os").environ.get("VERCEL_REGION") or "local",

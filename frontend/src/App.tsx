@@ -1,11 +1,13 @@
-import { Bell, FileCheck2, FileSearch, FlaskConical, LayoutDashboard, LogOut, Menu, Network, ScrollText, Activity, X } from "lucide-react";
+import { Bell, FileCheck2, Users, FileSearch, FlaskConical, LayoutDashboard, LogOut, Menu, Network, ScrollText, Activity, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { api, getAdmin, setAdmin } from "./api";
+import { admin, api, getAdmin, setAdmin } from "./api";
 import { usePoll } from "./components/ui";
 import AdminDocuments from "./pages/AdminDocuments";
 import AdminLogin from "./pages/AdminLogin";
+import AdminSignup from "./pages/AdminSignup";
 import AdminStats from "./pages/AdminStats";
+import AdminTeam from "./pages/AdminTeam";
 import Alerts from "./pages/Alerts";
 import Apply from "./pages/Apply";
 import Audit from "./pages/Audit";
@@ -148,10 +150,12 @@ function AdminSignOut({ onDone }: { onDone?: () => void }) {
 
 function AdminLayout() {
   const who = getAdmin();
+  const { data } = usePoll(() => (getAdmin() ? admin.stats() : Promise.resolve(null)), 8000);
   if (!who) return <Navigate to="/admin/login" replace />;
   const links: NavItem[] = [
     { to: "/admin", end: true, icon: Activity, label: "Live stats" },
-    { to: "/admin/documents", icon: FileCheck2, label: "Verify documents" },
+    { to: "/admin/documents", icon: FileCheck2, label: "Verify documents", count: data?.documents?.pending },
+    { to: "/admin/team", icon: Users, label: "Team", count: data?.pending_accounts },
   ];
   return <ConsoleShell title="Compliance OS" subtitle={`Admin · ${who.username}`} links={links}
     footer={(close) => <AdminSignOut onDone={close} />} />;
@@ -200,9 +204,11 @@ export default function App() {
         <Route path="cases/:id" element={<InstCase />} />
       </Route>
       <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/signup" element={<AdminSignup />} />
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminStats />} />
         <Route path="documents" element={<AdminDocuments />} />
+        <Route path="team" element={<AdminTeam />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -147,4 +147,16 @@ export const admin = {
   review: (id: number, status: "verified" | "rejected", note: string) =>
     adminPost(`/documents/${id}/review`, { status, note }),
   reset: () => adminPost("/reset"),
+  signup: async (name: string, username: string, email: string, password: string) => {
+    const r = await fetch("/api/admin/signup", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, username, email, password }) });
+    if (!r.ok) {
+      let msg = "The request didn't go through.";
+      try { msg = (await r.json()).detail ?? msg; } catch { /* body was not JSON */ }
+      throw new Error(typeof msg === "string" ? msg : "Check the form and try again.");
+    }
+    return r.json();
+  },
+  accounts: () => adminJson<any>("/accounts"),
+  accountAction: (id: number, action: "approve" | "disable") => adminPost(`/accounts/${id}/${action}`),
 };

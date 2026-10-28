@@ -107,7 +107,7 @@ def test_sandbox_and_sweep(client):
 
 
 def _admin(client):
-    r = client.post("/api/admin/login", json={"username": "admin", "password": "aicte-admin-2026"})
+    r = client.post("/api/admin/login", json={"username": "admin", "password": "Test@123"})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
@@ -149,3 +149,35 @@ def test_admin_stats_and_document_review(client):
     after = client.get("/api/admin/stats", headers=h).json()
     assert after["documents"]["rejected"] == st["documents"]["rejected"] + 1
     assert client.post("/api/audit/verify").json()["ok"]
+
+
+def test_signup_needs_approval_and_disable_ends_sessions(client):
+    owner = _admin(client)
+    bad = client.post("/api/admin/signup", json={"name": "A", "username": "x", "email": "a@b.in", "password": "short"})
+    assert bad.status_code == 422
+    weak = client.post("/api/admin/signup", json={"name": "Asha Rao", "username": "asha", "email": "asha@aicte.in",
+                                                   "password": "lettersonly"})
+    assert weak.status_code == 422
+    r = client.post("/api/admin/signup", json={"name": "Asha Rao", "username": "Asha", "email": "asha@aicte.in",
+                                                "password": "Verify#2026"})
+    assert r.status_code == 200 and r.json()["status"] == "pending"
+    assert client.post("/api/admin/signup", json={"name": "Dup", "username": "asha", "email": "d@aicte.in",
+                                                  "password": "Another#1"}).status_code == 409
+    assert client.post("/api/admin/signup", json={"name": "Dup", "username": "admin", "email": "d@aicte.in",
+                                                  "password": "Another#1"}).status_code == 409
+
+    creds = {"username": "asha", "password": "Verify#2026"}
+    assert client.post("/api/admin/login", json=creds).status_code == 403          # pending
+    accts = client.get("/api/admin/accounts", headers=owner).json()["accounts"]
+    acct = next(a for a in accts if a["username"] == "asha")
+    assert "password_hash" not in acct
+    assert client.post(f"/api/admin/accounts/{acct['id']}/approve", headers=owner).status_code == 200
+
+    tok = client.post("/api/admin/login", json=creds).json()["token"]
+    mine = {"Authorization": f"Bearer {tok}"}
+    assert client.get("/api/admin/stats", headers=mine).status_code == 200
+    assert client.post("/api/admin/login", json={"username": "asha", "password": "wrong#123"}).status_code == 401
+
+    assert client.post(f"/api/admin/accounts/{acct['id']}/disable", headers=owner).status_code == 200
+    assert client.get("/api/admin/stats", headers=mine).status_code == 401          # session ended at once
+    assert client.post("/api/admin/login", json=creds).status_code == 403

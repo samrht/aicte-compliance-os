@@ -23,7 +23,7 @@ cd frontend; npx vite --port 5173
 
 Tests: `cd backend; .\.venv\Scripts\python -m pytest -q` (23 tests, including both demo applications end to end).
 
-**Admin panel:** `/admin/login` (linked from the sign-in page). Demo account `admin` / `aicte-admin-2026`; set `ADMIN_USER` / `ADMIN_PASSWORD` on the server to replace it (the login page then stops showing the hint). The admin sees live stats (refreshing every 3 s) and verifies every uploaded document beside its automatic checks; verdicts are signed into the audit log and rejections notify the institution.
+**Admin panel:** `/admin/login` (linked from the sign-in page). The built-in account is `admin`; its password comes from `ADMIN_PASSWORD` on the server (set on Vercel; locally it defaults to the value in `app/auth.py`, and the login page shows that hint only while no env password is set). Anyone can request an account at `/admin/signup`; it stays pending until an admin approves it on the Team page, and disabling an account ends its sessions immediately. Admin accounts survive demo resets. The admin sees live stats (refreshing every 3 s) and verifies every uploaded document beside its automatic checks; verdicts are signed into the audit log and rejections notify the institution.
 
 **Reset before every take:** Admin panel → Live stats → *Reset demo data* (click twice). This restores the seeded world.
 
