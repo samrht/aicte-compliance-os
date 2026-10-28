@@ -7,7 +7,11 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app import config
 
-engine = create_engine(config.DB_URL, connect_args={"check_same_thread": False})
+if config.DB_URL.startswith("sqlite"):
+    engine = create_engine(config.DB_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(config.DB_URL, pool_pre_ping=True, pool_size=3, max_overflow=2,
+                           pool_recycle=300)
 
 
 def init_db() -> None:

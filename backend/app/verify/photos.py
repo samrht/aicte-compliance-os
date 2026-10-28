@@ -7,11 +7,12 @@ matches even when its bytes differ.
 """
 from __future__ import annotations
 
+import io
 import math
 from dataclasses import dataclass
 from pathlib import Path
 
-import imagehash
+import numpy as np
 from PIL import Image
 
 GPS_IFD = 0x8825
@@ -38,12 +39,26 @@ def read_gps(img: Image.Image) -> tuple[float, float] | None:
     return _dms(gps[2], gps.get(1, "N")), _dms(gps[4], gps.get(3, "E"))
 
 
-def inspect(path: Path) -> PhotoInfo:
-    with Image.open(path) as img:
+_N = 32
+# DCT-II basis; scale is irrelevant because bits compare against the median.
+_DCT = np.cos(np.pi * np.outer(np.arange(_N), 2 * np.arange(_N) + 1) / (2 * _N))
+
+
+def phash(img: Image.Image) -> str:
+    """64-bit perceptual hash: low 8x8 DCT frequencies of a 32x32 greyscale thumbnail vs their median."""
+    px = np.asarray(img.convert("L").resize((_N, _N), Image.LANCZOS), dtype=float)
+    low = (_DCT @ px @ _DCT.T)[:8, :8]
+    bits = (low > np.median(low)).flatten()
+    return f"{int(''.join('1' if b else '0' for b in bits), 2):016x}"
+
+
+def inspect(path: Path | None = None, data: bytes | None = None, filename: str | None = None) -> PhotoInfo:
+    src = io.BytesIO(data) if data is not None else path
+    with Image.open(src) as img:
         gps = read_gps(img)
-        h = imagehash.phash(img.convert("RGB"))
+        h = phash(img)
     lat, lon = gps if gps else (None, None)
-    return PhotoInfo(path.name, str(h), lat, lon)
+    return PhotoInfo(filename or path.name, h, lat, lon)
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -55,7 +70,7 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def hamming(a: str, b: str) -> int:
-    return imagehash.hex_to_hash(a) - imagehash.hex_to_hash(b)
+    return bin(int(a, 16) ^ int(b, 16)).count("1")
 
 
 def write_gps(img: Image.Image, lat: float, lon: float) -> Image.Exif:

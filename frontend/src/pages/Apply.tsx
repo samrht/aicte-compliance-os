@@ -107,6 +107,11 @@ export default function Apply() {
             <Drop icon={<FileText />} label="Audited income and expenditure statement (PDF)" accept=".pdf" files={pdf} onFiles={setPdf}
               hint="Revenue, expenditure and corpus fund are read automatically." />
           </div>
+          <p className="mt-4 text-[13px] text-ink-3">
+            No files to hand? Download a sample set, unzip it and upload its contents:{" "}
+            <a className="text-seal underline" href="/demo-assets/1-clean-indrayani-pune.zip">Indrayani (clean)</a>,{" "}
+            <a className="text-seal underline" href="/demo-assets/2-shady-thar-jaipur.zip">Thar Desert (suspicious)</a>.
+          </p>
           <div className="mt-6 flex justify-between">
             <Button kind="quiet" onClick={() => setStep(0)}>Back</Button>
             <Button disabled={!evidenceOk} onClick={() => setStep(2)}>Review application</Button>

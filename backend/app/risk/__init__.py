@@ -3,18 +3,25 @@
 A LightGBM classifier trained on synthetic past institutions (real AICTE
 outcome data is not public). Monotone constraints keep the model honest:
 more students per faculty can never lower risk, more land can never raise
-it. Per-case explanations are exact TreeSHAP values from `pred_contrib`.
+it. Per-case explanations are exact TreeSHAP values.
+
+Training needs LightGBM and runs locally (`python -m app.risk.train`); it
+exports the trees to `model.json`, which `trees.py` evaluates with no native
+code so the scorer also runs on serverless hosts.
 """
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
-import lightgbm as lgb
 import numpy as np
-from sklearn.metrics import roc_auc_score
 
 from app import config
+from app.risk.trees import TreeEnsemble
+
+MODEL_JSON = Path(__file__).with_name("model.json")
 
 FEATURES = [
     "students_per_faculty",
@@ -100,55 +107,57 @@ def tier_for(p: float) -> str:
     return "high"
 
 
+def auc(y: np.ndarray, p: np.ndarray) -> float:
+    """Area under the ROC curve via the rank-sum identity."""
+    order = np.argsort(p)
+    ranks = np.empty(len(p))
+    ranks[order] = np.arange(1, len(p) + 1)
+    pos = y == 1
+    n1, n0 = pos.sum(), (~pos).sum()
+    return float((ranks[pos].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
+def train(seed: int = 7) -> dict:
+    """Fit on synthetic history; returns {"auc", "model"} with the tree dump. Needs lightgbm."""
+    import lightgbm as lgb
+
+    X, y = synthetic_history(seed=seed)
+    split = int(len(y) * 0.8)
+    params = dict(objective="binary", learning_rate=0.05, num_leaves=15,
+                  min_data_in_leaf=25, monotone_constraints=MONOTONE,
+                  feature_fraction=0.9, verbose=-1, seed=seed)
+    booster = lgb.train(params, lgb.Dataset(X[:split], y[:split], feature_name=FEATURES),
+                        num_boost_round=250)
+    return {"auc": round(auc(y[split:], booster.predict(X[split:])), 4), "model": booster.dump_model()}
+
+
 class RiskModel:
-    def __init__(self, booster: lgb.Booster, auc: float | None = None):
-        self.booster = booster
+    def __init__(self, ensemble: TreeEnsemble, auc: float | None = None):
+        self.ensemble = ensemble
         self.auc = auc
 
     @classmethod
-    def train(cls, seed: int = 7) -> "RiskModel":
-        X, y = synthetic_history(seed=seed)
-        split = int(len(y) * 0.8)
-        params = dict(objective="binary", learning_rate=0.05, num_leaves=15,
-                      min_data_in_leaf=25, monotone_constraints=MONOTONE,
-                      feature_fraction=0.9, verbose=-1, seed=seed)
-        train = lgb.Dataset(X[:split], y[:split], feature_name=FEATURES)
-        booster = lgb.train(params, train, num_boost_round=250)
-        auc = float(roc_auc_score(y[split:], booster.predict(X[split:])))
-        return cls(booster, auc)
-
-    @classmethod
-    def load_or_train(cls) -> "RiskModel":
-        path = config.MODEL_PATH
-        if path.exists():
-            booster = lgb.Booster(model_file=str(path))
-            auc = None
-            meta = path.with_suffix(".auc")
-            if meta.exists():
-                auc = float(meta.read_text())
-            return cls(booster, auc)
-        model = cls.train()
-        config.ensure_dirs()
-        model.booster.save_model(str(path))
-        path.with_suffix(".auc").write_text(f"{model.auc:.4f}")
-        return model
+    def load(cls, path: Path = MODEL_JSON) -> "RiskModel":
+        if not path.exists():
+            path.write_text(json.dumps(train()))
+        data = json.loads(path.read_text())
+        return cls(TreeEnsemble(data["model"]), data.get("auc"))
 
     def score(self, features: dict[str, float]) -> RiskResult:
-        row = np.array([[float(features.get(f, 0.0)) for f in FEATURES]])
-        p = float(self.booster.predict(row)[0])
-        contrib = self.booster.predict(row, pred_contrib=True)[0]
+        row = [float(features.get(f, 0.0)) for f in FEATURES]
+        p = self.ensemble.probability(row)
+        contrib = self.ensemble.contributions(row)
         items = [
-            {"feature": f, "label": LABELS[f], "value": round(float(row[0, i]), 2),
-             "impact": round(float(contrib[i]), 4)}
+            {"feature": f, "label": LABELS[f], "value": round(row[i], 2), "impact": round(contrib[i], 4)}
             for i, f in enumerate(FEATURES)
         ]
         items.sort(key=lambda d: abs(d["impact"]), reverse=True)
-        return RiskResult(p, tier_for(p), items, float(contrib[-1]))
+        return RiskResult(p, tier_for(p), items, contrib[-1])
 
     def importance(self) -> list[dict]:
-        gains = self.booster.feature_importance(importance_type="gain")
-        total = float(gains.sum()) or 1.0
-        out = [{"feature": f, "label": LABELS[f], "share": round(float(g) / total, 4)}
+        gains = self.ensemble.gain
+        total = sum(gains) or 1.0
+        out = [{"feature": f, "label": LABELS[f], "share": round(g / total, 4)}
                for f, g in zip(FEATURES, gains)]
         return sorted(out, key=lambda d: d["share"], reverse=True)
 
@@ -176,7 +185,7 @@ _model: RiskModel | None = None
 def model() -> RiskModel:
     global _model
     if _model is None:
-        _model = RiskModel.load_or_train()
+        _model = RiskModel.load()
     return _model
 
 

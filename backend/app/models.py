@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, LargeBinary
 from sqlmodel import Field, SQLModel
 
 
@@ -123,3 +123,18 @@ class SignedRoot(SQLModel, table=True):
     root: str
     signature: str
     ts: datetime = Field(default_factory=now)
+
+
+class Upload(SQLModel, table=True):
+    """Evidence files, kept in the database so any server instance can process them."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    application_id: int = Field(foreign_key="application.id", index=True)
+    kind: str           # photo | roster | financials
+    filename: str
+    data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+
+
+class TamperBackup(SQLModel, table=True):
+    """Demo only: the original payload of an audit row the tamper button edited."""
+    entry_id: int = Field(primary_key=True)
+    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))

@@ -9,25 +9,25 @@ node then grows the rest of the graph for the tier it computed:
   high    approval lockdown, checks one after another, a physical
           inspection, then a human review
 
-Node state is written to the database on every transition, so a restarted
-server resumes each case where it stopped (the durable-execution property
-Temporal provides in production). Every transition is also appended to the
-Merkle audit log.
+All state lives in the database and the engine holds none in memory: each
+call to `advance` finishes the steps whose time is up and starts the ones
+that became ready. The API calls it whenever a case is read, so any server
+instance (or a restarted one) picks a case up exactly where it stopped, the
+durable-execution property Temporal provides in production. Every transition
+is also appended to the Merkle audit log.
 """
 from __future__ import annotations
 
-import asyncio
-import random
 from datetime import timedelta
-from pathlib import Path
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app import audit, config, policy, risk
 from app.db import session
 from app.events import raise_alert
 from app.models import (Application, FacultyToken, Finding, Institution, PhotoHash,
-                        WorkflowNode, now)
+                        Upload, WorkflowNode, now)
 from app.verify import docai, faculty, photos
 
 LABELS = {
@@ -57,10 +57,6 @@ PLANS: dict[str, list[tuple[str, list[str], int, int]]] = {
              ("inspection", ["norms"], 7, 0), ("review", ["inspection"], 8, 0),
              ("seal", ["review"], 9, 0)],
 }
-
-
-def upload_dir(app_id: int) -> Path:
-    return config.UPLOADS / f"app_{app_id}"
 
 
 def create_nodes(s: Session, app: Application) -> None:
@@ -95,15 +91,15 @@ def _state_for(found: list[Finding]) -> str:
 # Each returns (state, detail). They run inside one DB session and commit with it.
 
 def h_ingest(s: Session, app: Application, inst: Institution) -> tuple[str, str]:
-    folder = upload_dir(app.id)
+    files = s.exec(select(Upload).where(Upload.application_id == app.id).order_by(Upload.filename)).all()
     declared = dict(app.metrics)
     signals: dict = {"photos": [], "photo_matches": [], "collisions": [], "doc": {}}
 
     # Photos: hash + GPS, matched against every other institution's photos.
     others = s.exec(select(PhotoHash, Institution).join(Institution)
                     .where(PhotoHash.institution_id != inst.id)).all()
-    for p in sorted((folder / "photos").glob("*")) if (folder / "photos").exists() else []:
-        info = photos.inspect(p)
+    for up in (f for f in files if f.kind == "photo"):
+        info = photos.inspect(data=up.data, filename=up.filename)
         dist = (round(photos.haversine_km(inst.lat, inst.lon, info.lat, info.lon), 2)
                 if info.lat is not None else None)
         signals["photos"].append({"file": info.filename, "phash": info.phash, "lat": info.lat,
@@ -118,8 +114,8 @@ def h_ingest(s: Session, app: Application, inst: Institution) -> tuple[str, str]
                         phash=info.phash, lat=info.lat, lon=info.lon))
 
     # Faculty roster -> blinded tokens, matched against other institutions.
-    roster = folder / "faculty.csv"
-    rows = faculty.parse_csv(roster.read_bytes()) if roster.exists() else []
+    roster = next((f for f in files if f.kind == "roster"), None)
+    rows = faculty.parse_csv(roster.data) if roster else []
     if rows:
         tokens = [r.token for r in rows]
         hits = s.exec(select(FacultyToken, Institution).join(Institution)
@@ -133,9 +129,9 @@ def h_ingest(s: Session, app: Application, inst: Institution) -> tuple[str, str]
                                designation=r.designation, qualification=r.qualification))
 
     # Financial statement -> fields.
-    pdf = folder / "financials.pdf"
-    if pdf.exists():
-        signals["doc"] = docai.extract(pdf)
+    pdf = next((f for f in files if f.kind == "financials"), None)
+    if pdf:
+        signals["doc"] = docai.extract(pdf.data)
 
     m = metrics_from(declared, rows, signals["doc"].get("fields", {}))
     app.metrics = m
@@ -340,24 +336,31 @@ HANDLERS = {
 }
 
 
-# --- Runner ---------------------------------------------------------------------
+# --- Runner ---------------------------------------------------------------------------
 
 def _ready(nodes: list[WorkflowNode]) -> list[WorkflowNode]:
     state = {n.key: n.state for n in nodes}
     return [n for n in nodes if n.state == "pending" and all(state.get(d) in DONE for d in n.depends_on)]
 
 
-def _start(node_id: int) -> None:
-    with session() as s:
-        node = s.get(WorkflowNode, node_id)
-        node.state, node.started_at = "running", now()
-        s.add(node)
-        s.commit()
+def _duration(node: WorkflowNode, delay: float) -> float:
+    """Each step takes delay * 0.7..1.3, fixed per node so every poll agrees."""
+    return delay * (0.7 + 0.6 * ((node.id * 7919) % 100) / 100)
+
+
+def _claim(s: Session, node_id: int, src: str, dst: str, **values) -> bool:
+    """Move a node between states only if no one else did first."""
+    res = s.execute(update(WorkflowNode).where(WorkflowNode.id == node_id)
+                    .where(WorkflowNode.state == src).values(state=dst, **values))
+    return res.rowcount == 1
 
 
 def _execute(node_id: int) -> None:
     with session() as s:
+        if not _claim(s, node_id, "running", "executing"):
+            return
         node = s.get(WorkflowNode, node_id)
+        s.refresh(node)
         app = s.get(Application, node.application_id)
         inst = s.get(Institution, app.institution_id)
         try:
@@ -373,34 +376,45 @@ def _execute(node_id: int) -> None:
         s.commit()
 
 
-async def run(app_id: int, delay: float | None = None) -> None:
-    """Advance a case until it finishes or waits on a human."""
+def advance(app_id: int, delay: float | None = None) -> None:
+    """Finish the steps whose time is up, start the steps that are now ready.
+
+    With no delay it loops until the case finishes or waits on a human.
+    """
     delay = config.STEP_DELAY if delay is None else delay
     while True:
         with session() as s:
+            nodes = _nodes(s, app_id)
+        t = now()
+        due = [n for n in nodes if n.state == "running"
+               and (t - _aware(n.started_at)).total_seconds() >= _duration(n, delay)]
+        for n in due:
+            _execute(n.id)
+        with session() as s:
             ready = _ready(_nodes(s, app_id))
-        if not ready:
+            started = [n for n in ready if _claim(s, n.id, "pending", "running", started_at=now())]
+            s.commit()
+        if delay or not (due or started):
             return
 
-        async def step(node: WorkflowNode) -> None:
-            _start(node.id)
-            if delay:
-                await asyncio.sleep(delay * random.uniform(0.7, 1.3))
-            _execute(node.id)
 
-        await asyncio.gather(*(step(n) for n in ready))
+def _aware(ts):
+    from datetime import timezone
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
 
 
 def run_sync(app_id: int) -> None:
-    """The same advance with no delays and no event loop (seeding, scripts)."""
-    while True:
-        with session() as s:
-            ready = _ready(_nodes(s, app_id))
-        if not ready:
-            return
-        for node in ready:
-            _start(node.id)
-            _execute(node.id)
+    """Run a case to completion (or to a human step) with no delays: seeding, scripts."""
+    advance(app_id, delay=0)
+
+
+def advance_active() -> None:
+    """Advance every case that still has work in flight."""
+    with session() as s:
+        ids = s.exec(select(WorkflowNode.application_id)
+                     .where(WorkflowNode.state.in_(["pending", "running"])).distinct()).all()
+    for app_id in ids:
+        advance(app_id)
 
 
 def decide(s: Session, app: Application, approve: bool, actor: str, note: str = "") -> None:
@@ -423,15 +437,3 @@ def decide(s: Session, app: Application, approve: bool, actor: str, note: str = 
                 application_id=app.id, title=f"{inst.name}: application {app.status}",
                 message=note or f"Regulator decision recorded for {app.academic_year}.", actor=actor)
     s.commit()
-
-
-def resume_all() -> list[int]:
-    """Cases interrupted mid-run (server restart): reset running nodes and go again."""
-    with session() as s:
-        stuck = s.exec(select(WorkflowNode).where(WorkflowNode.state == "running")).all()
-        for n in stuck:
-            n.state = "pending"
-            s.add(n)
-        s.commit()
-        ids = s.exec(select(Application.id).where(Application.status == "running")).all()
-    return list(ids)

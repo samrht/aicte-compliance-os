@@ -1,0 +1,12 @@
+# Runtime dependencies (what Vercel installs). Local dev also needs: lightgbm, pytest, httpx, uvicorn.
+fastapi==0.162.0
+sqlmodel==0.0.48
+SQLAlchemy==2.1.6
+pydantic==2.14.1
+numpy==2.5.4
+pillow==13.0.0
+pypdf==6.21.3
+python-multipart==0.0.32
+cryptography==50.0.2
+fpdf2==2.8.9
+psycopg[binary]>=3.2

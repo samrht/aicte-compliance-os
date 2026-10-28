@@ -64,7 +64,12 @@ export default function Login() {
             </button>
           </section>
         </div>
-        <p className="mt-8 text-[13px] text-ink-3">Prototype for Smart India Hackathon 2026, problem statement SIH26262. All institutions and people are fictional.</p>
+        <p className="mt-8 text-[13px] text-ink-3">
+          Prototype for Smart India Hackathon 2026, problem statement SIH26262. All institutions and people are fictional.
+          To try an application, sign in as one of the new applicants and upload a sample set:{" "}
+          <a className="text-seal underline" href="/demo-assets/1-clean-indrayani-pune.zip">Indrayani (clean)</a> or{" "}
+          <a className="text-seal underline" href="/demo-assets/2-shady-thar-jaipur.zip">Thar Desert (suspicious)</a>.
+        </p>
       </div>
     </div>
   );

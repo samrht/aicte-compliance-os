@@ -1,9 +1,7 @@
 """HTTP API for the institution portal and the AICTE regulator console."""
 from __future__ import annotations
 
-import asyncio
 import json
-import shutil
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -13,33 +11,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app import audit, dag, policy, risk
+from app import audit, config, dag, policy, risk
 from app.db import get_session, init_db, session
 from app.events import raise_alert
 from app.models import (Alert, Application, AuditEntry, FacultyToken, Finding, Institution,
-                        WorkflowNode, now)
+                        TamperBackup, Upload, WorkflowNode, now)
 
-_tasks: set[asyncio.Task] = set()
-_tamper_backup: dict[int, dict] = {}
-
-
-def schedule(app_id: int) -> None:
-    task = asyncio.get_running_loop().create_task(dag.run(app_id))
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     risk.model()
-    with session() as s:
-        empty = s.exec(select(Institution)).first() is None
-    if empty:
-        from app.seed import seed
-        seed()
-    for app_id in dag.resume_all():
-        schedule(app_id)
+    if not config.ON_VERCEL:          # hosted: seed once via POST /api/admin/reset
+        with session() as s:
+            empty = s.exec(select(Institution)).first() is None
+        if empty:
+            from app.seed import seed
+            seed()
     yield
 
 
@@ -82,6 +71,7 @@ def list_institutions(s: Session = Depends(get_session)) -> list[dict]:
 
 @app.get("/api/institutions/{inst_id}")
 def get_institution(inst_id: int, s: Session = Depends(get_session)) -> dict:
+    dag.advance_active()
     inst = s.get(Institution, inst_id)
     if not inst:
         raise HTTPException(404, "unknown institution")
@@ -104,6 +94,7 @@ def get_institution(inst_id: int, s: Session = Depends(get_session)) -> dict:
 
 @app.get("/api/applications")
 def list_applications(status: Optional[str] = None, s: Session = Depends(get_session)) -> list[dict]:
+    dag.advance_active()
     q = select(Application).order_by(Application.id.desc())
     if status:
         q = q.where(Application.status.in_(status.split(",")))
@@ -112,6 +103,7 @@ def list_applications(status: Optional[str] = None, s: Session = Depends(get_ses
 
 @app.get("/api/applications/{app_id}")
 def get_application(app_id: int, s: Session = Depends(get_session)) -> dict:
+    dag.advance(app_id)
     a = s.get(Application, app_id)
     if not a:
         raise HTTPException(404, "unknown application")
@@ -138,15 +130,15 @@ async def submit_application(
             "students": students, "land_acres": land_acres, "builtup_sqm": builtup_sqm, "labs": labs})
         s.add(a)
         s.flush()
-        folder = dag.upload_dir(a.id)
-        (folder / "photos").mkdir(parents=True, exist_ok=True)
         if faculty_csv is not None:
-            (folder / "faculty.csv").write_bytes(await faculty_csv.read())
+            s.add(Upload(application_id=a.id, kind="roster", filename="faculty.csv",
+                         data=await faculty_csv.read()))
         if financials is not None:
-            (folder / "financials.pdf").write_bytes(await financials.read())
+            s.add(Upload(application_id=a.id, kind="financials", filename="financials.pdf",
+                         data=await financials.read()))
         for p in photos:
-            name = p.filename.replace("/", "_").replace("\\", "_")
-            (folder / "photos" / name).write_bytes(await p.read())
+            name = (p.filename or "photo.jpg").replace("/", "_").replace("\\", "_")
+            s.add(Upload(application_id=a.id, kind="photo", filename=name, data=await p.read()))
         inst.status = "pending"
         s.add(inst)
         dag.create_nodes(s, a)
@@ -155,7 +147,7 @@ async def submit_application(
                       "has_financials": financials is not None})
         s.commit()
         app_id = a.id
-    schedule(app_id)
+    dag.advance(app_id)
     return {"id": app_id}
 
 
@@ -166,7 +158,7 @@ class Decision(BaseModel):
 
 
 @app.post("/api/applications/{app_id}/decision")
-async def decide(app_id: int, body: Decision) -> dict:
+def decide(app_id: int, body: Decision) -> dict:
     with session() as s:
         a = s.get(Application, app_id)
         if not a:
@@ -175,7 +167,7 @@ async def decide(app_id: int, body: Decision) -> dict:
             dag.decide(s, a, body.approve, body.actor, body.note)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
-    schedule(app_id)
+    dag.advance(app_id)
     return {"ok": True}
 
 
@@ -183,6 +175,7 @@ async def decide(app_id: int, body: Decision) -> dict:
 
 @app.get("/api/dashboard")
 def dashboard(s: Session = Depends(get_session)) -> dict:
+    dag.advance_active()
     insts = s.exec(select(Institution)).all()
     apps = s.exec(select(Application)).all()
     alerts = s.exec(select(Alert)).all()
@@ -329,7 +322,8 @@ def audit_tamper(entry_id: int) -> dict:
         e = s.get(AuditEntry, entry_id)
         if not e:
             raise HTTPException(404)
-        _tamper_backup.setdefault(entry_id, json.loads(json.dumps(e.payload)))
+        if s.get(TamperBackup, entry_id) is None:
+            s.add(TamperBackup(entry_id=entry_id, payload=json.loads(json.dumps(e.payload))))
         forged = dict(e.payload)
         if "decision" in forged:
             forged["decision"] = "approved" if forged["decision"] != "approved" else "rejected"
@@ -344,15 +338,15 @@ def audit_tamper(entry_id: int) -> dict:
 @app.post("/api/audit/restore")
 def audit_restore() -> dict:
     with session() as s:
-        for entry_id, payload in _tamper_backup.items():
-            e = s.get(AuditEntry, entry_id)
+        backups = s.exec(select(TamperBackup)).all()
+        for b in backups:
+            e = s.get(AuditEntry, b.entry_id)
             if e:
-                e.payload = payload
+                e.payload = b.payload
                 s.add(e)
+            s.delete(b)
         s.commit()
-    n = len(_tamper_backup)
-    _tamper_backup.clear()
-    return {"restored": n}
+    return {"restored": len(backups)}
 
 
 # --- Policy / Shadow Sandbox --------------------------------------------------------------------
@@ -382,16 +376,10 @@ def model_info() -> dict:
 # --- Demo controls -------------------------------------------------------------------------------
 
 @app.post("/api/admin/reset")
-async def reset_demo() -> dict:
-    from app import config
+def reset_demo() -> dict:
     from app.db import reset_db
     from app.seed import seed
-    for t in list(_tasks):
-        t.cancel()
     reset_db()
-    shutil.rmtree(config.UPLOADS, ignore_errors=True)
-    config.ensure_dirs()
-    _tamper_backup.clear()
     seed()
     return {"ok": True}
 

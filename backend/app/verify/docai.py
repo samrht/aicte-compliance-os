@@ -6,6 +6,7 @@ one a LayoutLMv3 key-value model plugs into for scanned statements.
 """
 from __future__ import annotations
 
+import io
 import re
 from pathlib import Path
 
@@ -20,13 +21,13 @@ FIELDS = {
 NUMBER = r"[^\d\n]{0,40}?([\d,]+(?:\.\d+)?)"
 
 
-def extract_text(path: Path) -> str:
-    reader = PdfReader(str(path))
+def extract_text(src: Path | bytes) -> str:
+    reader = PdfReader(io.BytesIO(src) if isinstance(src, bytes) else str(src))
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
-def extract(path: Path) -> dict:
-    text = extract_text(path)
+def extract(src: Path | bytes) -> dict:
+    text = extract_text(src)
     out: dict = {"fields": {}, "provenance": {}}
     for name, label in FIELDS.items():
         m = re.search(label + NUMBER, text, flags=re.IGNORECASE)

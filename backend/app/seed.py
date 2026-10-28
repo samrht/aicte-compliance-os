@@ -19,9 +19,10 @@ from sqlmodel import select
 from app import audit, config, dag, demo_data as dd
 from app.db import init_db, session
 from app.events import raise_alert
-from app.models import Alert, Application, AuditEntry, Institution, WorkflowNode, now
+from app.models import Alert, Application, AuditEntry, Institution, Upload, WorkflowNode, now
 
-DEMO_ASSETS = Path(os.environ.get("ACOS_DEMO_ASSETS", config.BACKEND.parent / "demo-assets"))
+DEMO_ASSETS = Path(os.environ.get("ACOS_DEMO_ASSETS", config.DATA / "demo-assets" if config.ON_VERCEL
+                                  else config.BACKEND.parent / "demo-assets"))
 
 PROFILES = {
     #             spf        phd    land       builtup     labs        deficit     corpus      prior
@@ -111,6 +112,8 @@ def _evidence(rng: random.Random, code: str, name: str, lat: float, lon: float, 
 
 def seed(rng_seed: int = 2026) -> None:
     init_db()
+    shutil.rmtree(config.SCRATCH, ignore_errors=True)
+    config.ensure_dirs()
     rng = random.Random(rng_seed)
     _rosters.clear()
     _photos.clear()
@@ -128,8 +131,14 @@ def seed(rng_seed: int = 2026) -> None:
             app = Application(institution_id=inst.id)
             s.add(app)
             s.flush()
-            folder = dag.upload_dir(app.id)
+            folder = config.SCRATCH / code
             declared = _evidence(rng, code, name, lat, lon, profile, extras, folder)
+            for f in sorted((folder / "photos").glob("*.jpg")):
+                s.add(Upload(application_id=app.id, kind="photo", filename=f.name, data=f.read_bytes()))
+            s.add(Upload(application_id=app.id, kind="roster", filename="faculty.csv",
+                         data=(folder / "faculty.csv").read_bytes()))
+            s.add(Upload(application_id=app.id, kind="financials", filename="financials.pdf",
+                         data=(folder / "financials.pdf").read_bytes()))
             app.metrics = declared
             dag.create_nodes(s, app)
             audit.append(s, f"institution:{code}", "application.submitted", f"application:{app.id}",
@@ -216,8 +225,6 @@ if __name__ == "__main__":
     from app.db import reset_db
     init_db()
     reset_db()
-    shutil.rmtree(config.UPLOADS, ignore_errors=True)
-    config.ensure_dirs()
     seed()
     with session() as s:
         for i in s.exec(select(Institution)).all():

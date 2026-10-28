@@ -86,6 +86,8 @@ _key: Ed25519PrivateKey | None = None
 
 def signing_key() -> Ed25519PrivateKey:
     global _key
+    if _key is None and config.AUDIT_SIGNING_KEY:
+        _key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(config.AUDIT_SIGNING_KEY))
     if _key is None:
         path = config.AUDIT_KEY_PATH
         if path.exists():
