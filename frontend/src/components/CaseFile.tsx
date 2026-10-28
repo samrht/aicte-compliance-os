@@ -1,7 +1,7 @@
 import { Bar, BarChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Application } from "../api";
 import Dag from "./Dag";
-import { Hash, Panel, SEVERITY, Status, TierBadge, fmtDate, fmtHours } from "./ui";
+import { Hash, Panel, SEVERITY, Status, TierBadge, fmtDate, fmtHours, useMedia } from "./ui";
 
 const STAMPS: Record<string, [string, string]> = {
   ratified: ["Ratified", "text-leaf"],
@@ -72,6 +72,7 @@ export function Findings({ app }: { app: Application }) {
 }
 
 export function RiskExplain({ app }: { app: Application }) {
+  const narrow = useMedia("(max-width: 639px)");
   const rows = (app.contributions ?? []).slice(0, 7).map((c) => ({ ...c, name: c.label }));
   if (!rows.length) return <Panel title="Why this risk score"><p className="text-sm text-ink-2">Scoring after ingestion.</p></Panel>;
   return (
@@ -83,7 +84,7 @@ export function RiskExplain({ app }: { app: Application }) {
         <ResponsiveContainer>
           <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 16 }}>
             <XAxis type="number" tick={{ fontSize: 11, fill: "#6b7790" }} />
-            <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 12, fill: "#3c4a66" }} />
+            <YAxis type="category" dataKey="name" width={narrow ? 118 : 190} tick={{ fontSize: narrow ? 10.5 : 12, fill: "#3c4a66" }} />
             <ReferenceLine x={0} stroke="#9aa3b5" />
             <Tooltip formatter={(v: any, _n: any, p: any) => [`${Number(v) > 0 ? "+" : ""}${Number(v).toFixed(2)} log-odds (value ${p.payload.value})`, "Impact"]} />
             <Bar dataKey="impact" radius={3}>

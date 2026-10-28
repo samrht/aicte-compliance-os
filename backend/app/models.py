@@ -144,3 +144,12 @@ class DemoLock(SQLModel, table=True):
     """One row; held while a demo reset runs so two resets can't interleave."""
     id: int = Field(default=1, primary_key=True)
     held_until: Optional[datetime] = None
+
+
+class DocumentReview(SQLModel, table=True):
+    """An administrator's verdict on one uploaded document. No row = not reviewed yet."""
+    upload_id: int = Field(foreign_key="upload.id", primary_key=True)
+    status: str                  # verified | rejected
+    note: str = ""
+    reviewer: str
+    reviewed_at: datetime = Field(default_factory=now)

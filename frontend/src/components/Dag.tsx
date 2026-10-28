@@ -3,6 +3,7 @@ import "@xyflow/react/dist/style.css";
 import { Check, Circle, Clock, Loader2, Lock, TriangleAlert, X } from "lucide-react";
 import type { ReactElement } from "react";
 import type { Node as WNode } from "../api";
+import { useMedia } from "./ui";
 
 const STATE: Record<string, { ring: string; icon: ReactElement; text: string }> = {
   pending: { ring: "border-rule bg-paper", icon: <Circle size={14} className="text-ink-3" />, text: "Queued" },
@@ -51,7 +52,41 @@ export function layout(nodes: WNode[]) {
   });
 }
 
+/** Phones: the same graph as a vertical list, steps that run in parallel side by side. */
+function Steps({ nodes }: { nodes: WNode[] }) {
+  const groups = Object.values(nodes.reduce<Record<number, WNode[]>>((acc, n) => {
+    (acc[n.seq] ??= []).push(n);
+    return acc;
+  }, {}));
+  return (
+    <ol className="relative space-y-2.5 before:absolute before:inset-y-3 before:left-[9px] before:w-px before:bg-rule">
+      {groups.map((g) => (
+        <li key={g[0].seq} className="relative pl-7">
+          <span className="absolute left-[5px] top-3 size-[9px] rounded-full border-2 border-sheet bg-ink-3" />
+          {g.length > 1 && <p className="mb-1 text-[12px] text-ink-3">{g.length} checks in parallel</p>}
+          <div className={g.length > 1 ? "grid grid-cols-1 gap-2 min-[420px]:grid-cols-2" : ""}>
+            {g.map((n) => {
+              const s = STATE[n.state] ?? STATE.pending;
+              return (
+                <div key={n.key} className={`rounded-lg border-2 px-3 py-2 ${s.ring}`}>
+                  <div className="flex items-center gap-1.5 text-[13px] font-semibold">
+                    {n.key === "lockdown" ? <Lock size={14} className="text-stamp" /> : s.icon}
+                    <span>{n.label}</span>
+                  </div>
+                  <p className="mt-0.5 text-[12px] leading-snug text-ink-2">{n.detail || s.text}</p>
+                </div>
+              );
+            })}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export default function Dag({ nodes }: { nodes: WNode[] }) {
+  const narrow = useMedia("(max-width: 767px)");
+  if (narrow) return <Steps nodes={nodes} />;
   const state = Object.fromEntries(nodes.map((n) => [n.key, n.state]));
   const edges: Edge[] = nodes.flatMap((n) => n.depends_on.map((d) => ({
     id: `${d}-${n.key}`, source: d, target: n.key, animated: state[n.key] === "running",

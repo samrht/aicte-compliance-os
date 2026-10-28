@@ -19,7 +19,8 @@ from sqlmodel import select
 from app import audit, config, dag, demo_data as dd
 from app.db import init_db, session
 from app.events import raise_alert
-from app.models import Alert, Application, AuditEntry, Institution, Upload, WorkflowNode, now
+from app.models import (Alert, Application, AuditEntry, DocumentReview, Institution, Upload,
+                        WorkflowNode, now)
 
 DEMO_ASSETS = Path(os.environ.get("ACOS_DEMO_ASSETS", config.DATA / "demo-assets" if config.ON_VERCEL
                                   else config.BACKEND.parent / "demo-assets"))
@@ -165,6 +166,16 @@ def seed(rng_seed: int = 2026) -> None:
             s.add(app)
             s.commit()
         dag.run_sync(app_id)          # seals cases that were just decided
+
+    # Documents on cases already decided were verified along the way; the
+    # three cases still in review leave theirs in the admin's queue.
+    with session() as s:
+        for app in s.exec(select(Application).where(Application.decided_at.is_not(None))).all():
+            reviewer = "auto:batch-ratification" if app.status == "ratified" else "admin"
+            for up in s.exec(select(Upload).where(Upload.application_id == app.id)).all():
+                s.add(DocumentReview(upload_id=up.id, status="verified", reviewer=reviewer,
+                                     reviewed_at=app.decided_at, note=""))
+        s.commit()
 
     with session() as s:
         for code, name, city, state, lat, lon, est in DEMO_APPLICANTS:

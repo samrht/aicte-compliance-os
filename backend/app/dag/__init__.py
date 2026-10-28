@@ -127,6 +127,10 @@ def h_ingest(s: Session, app: Application, inst: Institution) -> tuple[str, str]
         for r in rows:
             s.add(FacultyToken(institution_id=inst.id, application_id=app.id, token=r.token,
                                designation=r.designation, qualification=r.qualification))
+        # The raw roster held names and PANs; keep only what the tokens already say.
+        roster.data = faculty.redacted_csv(rows)
+        roster.filename = "faculty_redacted.csv"
+        s.add(roster)
 
     # Financial statement -> fields.
     pdf = next((f for f in files if f.kind == "financials"), None)

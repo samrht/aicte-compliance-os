@@ -52,3 +52,13 @@ def parse_csv(data: bytes) -> list[FacultyRow]:
         rows.append(FacultyRow(token(r["pan"], r.get("dob", "")),
                                r.get("designation", ""), r.get("qualification", "")))
     return rows
+
+
+def redacted_csv(rows: list[FacultyRow]) -> bytes:
+    """The roster as stored after ingestion: token prefix, designation, qualification."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["faculty_token", "designation", "qualification"])
+    for r in rows:
+        w.writerow([r.token[:16], r.designation, r.qualification])
+    return buf.getvalue().encode()

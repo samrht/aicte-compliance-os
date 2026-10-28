@@ -1,6 +1,6 @@
 import { Building2, Landmark } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Seal, setSession } from "../App";
 import { api } from "../api";
 import { ErrorNote, Status, usePoll } from "../components/ui";
@@ -16,9 +16,9 @@ export default function Login() {
     <div className="flex min-h-full items-center justify-center px-4 py-12">
       <div className="w-full max-w-[880px]">
         <div className="mb-10 flex items-center gap-3">
-          <Seal className="size-11 text-seal" />
+          <Seal className="size-10 shrink-0 text-seal sm:size-11" />
           <div>
-            <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.015em]">AICTE Compliance OS</h1>
+            <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.015em] sm:text-[30px]">AICTE Compliance OS</h1>
             <p className="text-[15px] text-ink-2">Approval workflow, compliance monitoring and alerts for technical institutions</p>
           </div>
         </div>
@@ -30,7 +30,7 @@ export default function Login() {
             <p className="mt-1 text-[14px] text-ink-2">Apply for approval, upload evidence and follow your case as it is verified.</p>
             <label className="mt-5 text-[13px] font-medium text-ink-2" htmlFor="inst">Sign in as</label>
             <select id="inst" value={instId} onChange={(e) => setInstId(Number(e.target.value) || "")}
-              className="mt-1.5 rounded-lg border border-rule bg-sheet px-3 py-2.5 text-[14px]">
+              className="mt-1.5 w-full min-w-0 max-w-full truncate rounded-lg border border-rule bg-sheet px-3 py-2.5 text-[14px]">
               <option value="">Choose an institution</option>
               <optgroup label="New applicants">
                 {fresh.map((i) => <option key={i.id} value={i.id}>{i.name}, {i.city}</option>)}
@@ -64,7 +64,11 @@ export default function Login() {
             </button>
           </section>
         </div>
-        <p className="mt-8 text-[13px] text-ink-3">
+        <p className="mt-5 text-[14px] text-ink-2">
+          Platform administrator? <Link to="/admin/login" className="font-medium text-seal underline">Sign in to the admin panel</Link> for
+          live stats and document verification.
+        </p>
+        <p className="mt-6 text-[13px] text-ink-3">
           Prototype for Smart India Hackathon 2026, problem statement SIH26262. All institutions and people are fictional.
           To try an application, sign in as one of the new applicants and upload a sample set:{" "}
           <a className="text-seal underline" href="/demo-assets/1-clean-indrayani-pune.zip">Indrayani (clean)</a> or{" "}

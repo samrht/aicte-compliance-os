@@ -42,7 +42,7 @@ export default function Radar() {
       <div className="grid gap-5 xl:grid-cols-[1.7fr_1fr]">
         <Panel title="Institutions sharing faculty">
           {n === 0 ? <p className="text-sm text-ink-2">No faculty appears at two institutions.</p> : (
-            <div className="h-[520px]">
+            <div className="h-[400px] sm:h-[520px]">
               <ReactFlow key={n} nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
                 nodesConnectable={false} zoomOnScroll={false} preventScrolling={false} proOptions={{ hideAttribution: true }}>
                 <Background gap={22} size={1} color="#e3e7ee" />

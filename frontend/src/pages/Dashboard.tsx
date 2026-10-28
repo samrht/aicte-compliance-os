@@ -1,4 +1,4 @@
-import { RefreshCcw, Radar as RadarIcon } from "lucide-react";
+import { Radar as RadarIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
@@ -18,28 +18,6 @@ const TIER_COLOUR: Record<string, string> = { low: "#1d7f4a", medium: "#d9771a",
 export default function Dashboard() {
   const { data: d, error, refresh } = usePoll(() => api.dashboard(), 2000);
   const [note, setNote] = useState<string | null>(null);
-  // Reset takes ~20 s and wipes every change, so it needs a second click and can't overlap.
-  const [reset, setReset] = useState<"idle" | "confirm" | "running">("idle");
-
-  async function onReset() {
-    if (reset === "idle") {
-      setReset("confirm");
-      setTimeout(() => setReset((r) => (r === "confirm" ? "idle" : r)), 4000);
-      return;
-    }
-    if (reset !== "confirm") return;
-    setReset("running");
-    setNote("Resetting the demo data. This takes about 20 seconds.");
-    try {
-      await api.reset();
-      setNote("Demo data reset.");
-    } catch (e) {
-      setNote(`Reset didn't run: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setReset("idle");
-      refresh();
-    }
-  }
   if (!d) return <ErrorNote error={error} />;
 
   const turnaround = ["low", "medium", "high"].map((t) => ({ tier: t, hours: d.turnaround_hours[t] ?? null }));
@@ -51,10 +29,6 @@ export default function Dashboard() {
           <div className="flex gap-2">
             <Button kind="quiet" onClick={async () => { const r = await api.sweep(); setNote(`Compliance sweep finished: ${r.alerts_raised} new alert(s).`); refresh(); }}>
               <RadarIcon size={16} /> Run compliance sweep
-            </Button>
-            <Button kind={reset === "confirm" ? "danger" : "quiet"} disabled={reset === "running"} onClick={onReset}>
-              <RefreshCcw size={16} className={reset === "running" ? "animate-spin" : ""} />
-              {reset === "confirm" ? "Click again to reset everything" : reset === "running" ? "Resetting…" : "Reset demo"}
             </Button>
           </div>
         } />
@@ -73,7 +47,7 @@ export default function Dashboard() {
         <Panel title="Latest cases" action={<Link to="/aicte/queue" className="text-[13px] text-seal">Open review queue</Link>}>
           <table className="w-full text-[14px]">
             <thead className="text-left text-[13px] text-ink-3">
-              <tr><th className="pb-2 font-medium">Institution</th><th className="pb-2 font-medium">Risk</th><th className="pb-2 font-medium">Status</th><th className="pb-2 text-right font-medium">Submitted</th></tr>
+              <tr><th className="pb-2 font-medium">Institution</th><th className="pb-2 font-medium">Risk</th><th className="pb-2 font-medium">Status</th><th className="hidden pb-2 text-right font-medium sm:table-cell">Submitted</th></tr>
             </thead>
             <tbody>
               {d.recent.map((a: any) => (
@@ -84,7 +58,7 @@ export default function Dashboard() {
                   </td>
                   <td className="py-2.5 pr-3"><TierBadge tier={a.tier} score={a.risk_score} /></td>
                   <td className="py-2.5 pr-3"><Status value={a.status} /></td>
-                  <td className="py-2.5 text-right text-[13px] text-ink-2">{fmtDate(a.submitted_at)}</td>
+                  <td className="hidden py-2.5 text-right text-[13px] text-ink-2 sm:table-cell">{fmtDate(a.submitted_at)}</td>
                 </tr>
               ))}
             </tbody>

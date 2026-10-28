@@ -125,3 +125,17 @@ export function PageTitle({ title, sub, action }: { title: string; sub?: ReactNo
     </div>
   );
 }
+
+/** True while the viewport matches `query`; follows resizes and rotation. */
+export function useMedia(query: string) {
+  const get = () => typeof window !== "undefined" && window.matchMedia(query).matches;
+  const [match, setMatch] = useState(get);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setMatch(m.matches);
+    on();
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, [query]);
+  return match;
+}

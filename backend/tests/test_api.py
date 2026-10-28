@@ -106,11 +106,46 @@ def test_sandbox_and_sweep(client):
     assert client.post("/api/monitor/sweep").status_code == 200
 
 
+def _admin(client):
+    r = client.post("/api/admin/login", json={"username": "admin", "password": "aicte-admin-2026"})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
 def test_second_reset_is_refused_while_one_runs(client):
-    from app.main import _release_reset_lock, _take_reset_lock
+    from app.admin import _release_reset_lock, _take_reset_lock
+    headers = _admin(client)
     assert _take_reset_lock()
     try:
-        r = client.post("/api/admin/reset")
+        r = client.post("/api/admin/reset", headers=headers)
         assert r.status_code == 409
     finally:
         _release_reset_lock()
+
+
+def test_admin_routes_need_a_valid_token(client):
+    assert client.post("/api/admin/login", json={"username": "admin", "password": "nope"}).status_code == 401
+    for path in ("/api/admin/stats", "/api/admin/documents"):
+        assert client.get(path).status_code == 401
+        assert client.get(path, headers={"Authorization": "Bearer forged.token"}).status_code == 401
+    assert client.post("/api/admin/reset").status_code == 401
+
+
+def test_admin_stats_and_document_review(client):
+    h = _admin(client)
+    st = client.get("/api/admin/stats", headers=h).json()
+    assert st["documents"]["pending"] > 0 and st["system"]["audit_ok"]
+    docs = client.get("/api/admin/documents", headers=h).json()
+    roster = next(d for d in docs if d["kind"] == "roster")
+    body = client.get(f"/api/admin/documents/{roster['id']}/file", headers=h).text
+    assert body.startswith("faculty_token,designation,qualification")   # names and PANs gone
+    photo = next(d for d in docs if d["kind"] == "photo")
+    assert client.post(f"/api/admin/documents/{photo['id']}/review", headers=h,
+                       json={"status": "rejected", "note": ""}).status_code == 422
+    assert client.post(f"/api/admin/documents/{photo['id']}/review", headers=h,
+                       json={"status": "rejected", "note": "Blurred; retake on site"}).status_code == 200
+    rejected = client.get("/api/admin/documents?status=rejected", headers=h).json()
+    assert any(d["id"] == photo["id"] for d in rejected)
+    after = client.get("/api/admin/stats", headers=h).json()
+    assert after["documents"]["rejected"] == st["documents"]["rejected"] + 1
+    assert client.post("/api/audit/verify").json()["ok"]

@@ -31,15 +31,15 @@ export default function Queue() {
       <Panel title="Decided">
         <table className="w-full text-[14px]">
           <thead className="text-left text-[13px] text-ink-3">
-            <tr><th className="pb-2 font-medium">Institution</th><th className="pb-2 font-medium">Risk</th><th className="pb-2 font-medium">Outcome</th><th className="pb-2 font-medium">Decided by</th><th className="pb-2 text-right font-medium">Took</th></tr>
+            <tr><th className="pb-2 font-medium">Institution</th><th className="hidden pb-2 font-medium sm:table-cell">Risk</th><th className="pb-2 font-medium">Outcome</th><th className="hidden pb-2 font-medium md:table-cell">Decided by</th><th className="pb-2 text-right font-medium">Took</th></tr>
           </thead>
           <tbody>
             {done.map((a) => (
               <tr key={a.id} className="border-t border-rule">
                 <td className="py-2.5 pr-3"><Link to={`/aicte/cases/${a.id}`} className="hover:text-seal">{a.institution.name}</Link></td>
-                <td className="py-2.5 pr-3"><TierBadge tier={a.tier} /></td>
+                <td className="hidden py-2.5 pr-3 sm:table-cell"><TierBadge tier={a.tier} /></td>
                 <td className="py-2.5 pr-3"><Status value={a.status} /></td>
-                <td className="py-2.5 pr-3 text-[13px] text-ink-2">{a.decided_by?.startsWith("auto") ? "Batch ratification" : "Regional officer"}</td>
+                <td className="hidden py-2.5 pr-3 text-[13px] text-ink-2 md:table-cell">{a.decided_by?.startsWith("auto") ? "Batch ratification" : "Regional officer"}</td>
                 <td className="py-2.5 text-right text-[13px]">{fmtHours(a.turnaround_hours)}</td>
               </tr>
             ))}
