@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-ink: #14213d;
+  --color-ink-2: #3c4a66;
+  --color-ink-3: #6b7790;
+  --color-paper: #f6f7f9;
+  --color-sheet: #ffffff;
+  --color-rule: #dde2ea;
+  --color-seal: #1f4fd1;
+  --color-seal-soft: #e8eefc;
+  --color-saffron: #d9771a;
+  --color-saffron-soft: #fdf1e4;
+  --color-stamp: #c2302b;
+  --color-stamp-soft: #fbeceb;
+  --color-leaf: #1d7f4a;
+  --color-leaf-soft: #e7f4ec;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible { outline: 2px solid var(--color-seal); outline-offset: 2px; border-radius: 4px; }
+
+@layer components {
+  .sheet { background: var(--color-sheet); border: 1px solid var(--color-rule); border-radius: 10px; }
+}
+
+/* The verdict stamp: the one orchestrated motion in the app. */
+.stamp {
+  display: inline-block;
+  padding: 6px 16px 5px;
+  border: 3px double currentColor;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  transform: rotate(-7deg);
+  mix-blend-mode: multiply;
+  opacity: 0.88;
+  animation: stamp-in 420ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes stamp-in {
+  from { transform: rotate(-7deg) scale(2.2); opacity: 0; }
+  to   { transform: rotate(-7deg) scale(1); opacity: 0.88; }
+}
+
+.node-running { animation: pulse-ring 1.1s ease-in-out infinite; }
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(31, 79, 209, 0.35); }
+  50%      { box-shadow: 0 0 0 7px rgba(31, 79, 209, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp, .node-running { animation: none; }
+}
+
+.react-flow__attribution { display: none; }

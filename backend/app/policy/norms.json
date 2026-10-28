@@ -1,0 +1,76 @@
+{
+  "package": "aicte.approval.norms",
+  "version": "APH-2025-26-proto",
+  "rules": [
+    {
+      "id": "FAC-RATIO",
+      "title": "Faculty-student ratio",
+      "metric": "students_per_faculty",
+      "op": "<=",
+      "value": 20,
+      "unit": "students per faculty",
+      "severity": "critical",
+      "ref": "APH 2025-26, Ch. 3: faculty norms 1:20 (UG Engineering)"
+    },
+    {
+      "id": "FAC-PHD",
+      "title": "PhD-qualified faculty",
+      "metric": "phd_pct",
+      "op": ">=",
+      "value": 10,
+      "unit": "% of faculty",
+      "severity": "warn",
+      "ref": "APH 2025-26, Ch. 3: cadre and qualifications"
+    },
+    {
+      "id": "LAND-MIN",
+      "title": "Minimum land area",
+      "metric": "land_acres",
+      "op": ">=",
+      "value": 2.5,
+      "unit": "acres",
+      "severity": "critical",
+      "ref": "APH 2025-26, Appendix: land requirement (metro / urban)"
+    },
+    {
+      "id": "BUILT-UP",
+      "title": "Built-up area per student",
+      "metric": "builtup_sqm_per_student",
+      "op": ">=",
+      "value": 6,
+      "unit": "m² per student",
+      "severity": "critical",
+      "ref": "APH 2025-26, Appendix: built-up area norms"
+    },
+    {
+      "id": "LABS",
+      "title": "Laboratories",
+      "metric": "labs_per_100",
+      "op": ">=",
+      "value": 2,
+      "unit": "labs per 100 students",
+      "severity": "warn",
+      "ref": "APH 2025-26, Appendix: instructional area"
+    },
+    {
+      "id": "FIN-DEFICIT",
+      "title": "Operating deficit",
+      "metric": "deficit_pct",
+      "op": "<=",
+      "value": 10,
+      "unit": "% of revenue",
+      "severity": "critical",
+      "ref": "APH 2025-26, Ch. 2: financial viability"
+    },
+    {
+      "id": "FIN-CORPUS",
+      "title": "Corpus fund",
+      "metric": "corpus_lakh",
+      "op": ">=",
+      "value": 50,
+      "unit": "₹ lakh",
+      "severity": "warn",
+      "ref": "APH 2025-26, Ch. 2: corpus / FDR requirement"
+    }
+  ]
+}
