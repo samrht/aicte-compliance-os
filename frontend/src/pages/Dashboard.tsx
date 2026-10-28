@@ -1,7 +1,7 @@
 import { RefreshCcw, Radar as RadarIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { Button, ErrorNote, PageTitle, Panel, Status, TierBadge, fmtDate, fmtHours, usePoll } from "../components/ui";
 
@@ -19,9 +19,31 @@ const TIER_COLOUR: Record<string, string> = { low: "#1d7f4a", medium: "#d9771a",
 export default function Dashboard() {
   const { data: d, error, refresh } = usePoll(() => api.dashboard(), 2000);
   const [note, setNote] = useState<string | null>(null);
+  // Reset takes ~20 s and wipes every change, so it needs a second click and can't overlap.
+  const [reset, setReset] = useState<"idle" | "confirm" | "running">("idle");
+
+  async function onReset() {
+    if (reset === "idle") {
+      setReset("confirm");
+      setTimeout(() => setReset((r) => (r === "confirm" ? "idle" : r)), 4000);
+      return;
+    }
+    if (reset !== "confirm") return;
+    setReset("running");
+    setNote("Resetting the demo data. This takes about 20 seconds.");
+    try {
+      await api.reset();
+      setNote("Demo data reset.");
+    } catch (e) {
+      setNote(`Reset didn't run: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setReset("idle");
+      refresh();
+    }
+  }
   if (!d) return <ErrorNote error={error} />;
 
-  const turnaround = ["low", "medium", "high"].map((t) => ({ tier: t, hours: d.turnaround_hours[t] ?? 0 }));
+  const turnaround = ["low", "medium", "high"].map((t) => ({ tier: t, hours: d.turnaround_hours[t] ?? null }));
 
   return (
     <>
@@ -31,8 +53,9 @@ export default function Dashboard() {
             <Button kind="quiet" onClick={async () => { const r = await api.sweep(); setNote(`Compliance sweep finished: ${r.alerts_raised} new alert(s).`); refresh(); }}>
               <RadarIcon size={16} /> Run compliance sweep
             </Button>
-            <Button kind="quiet" onClick={async () => { setNote("Resetting demo data…"); await api.reset(); setNote("Demo data reset."); refresh(); }}>
-              <RefreshCcw size={16} /> Reset demo
+            <Button kind={reset === "confirm" ? "danger" : "quiet"} disabled={reset === "running"} onClick={onReset}>
+              <RefreshCcw size={16} className={reset === "running" ? "animate-spin" : ""} />
+              {reset === "confirm" ? "Click again to reset everything" : reset === "running" ? "Resetting…" : "Reset demo"}
             </Button>
           </div>
         } />
@@ -74,11 +97,12 @@ export default function Dashboard() {
             <div className="h-[150px]">
               <ResponsiveContainer>
                 <BarChart data={turnaround} layout="vertical" margin={{ left: 0, right: 40 }}>
-                  <XAxis type="number" hide />
+                  <XAxis type="number" hide scale="log" domain={[1, "auto"]} allowDataOverflow />
                   <YAxis type="category" dataKey="tier" width={70} tick={{ fontSize: 13, fill: "#3c4a66" }}
                     tickFormatter={(t) => `${t[0].toUpperCase()}${t.slice(1)} risk`} />
                   <Tooltip formatter={(v: any) => [fmtHours(Number(v)), "Average"]} />
-                  <Bar dataKey="hours" radius={3} label={{ position: "right", fontSize: 12, fill: "#3c4a66", formatter: (v: any) => fmtHours(Number(v)) }}>
+                  <Bar dataKey="hours" radius={3}>
+                    <LabelList dataKey="hours" position="right" fontSize={12} fill="#3c4a66" formatter={(v: any) => fmtHours(Number(v))} />
                     {turnaround.map((t) => <Cell key={t.tier} fill={TIER_COLOUR[t.tier]} />)}
                   </Bar>
                 </BarChart>

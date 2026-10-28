@@ -12,10 +12,10 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app import audit, config, dag, policy, risk
-from app.db import get_session, init_db, session
+from app.db import IS_SQLITE, clear_db, get_session, init_db, session
 from app.events import raise_alert
-from app.models import (Alert, Application, AuditEntry, FacultyToken, Finding, Institution,
-                        TamperBackup, Upload, WorkflowNode, now)
+from app.models import (Alert, Application, AuditEntry, DemoLock, FacultyToken, Finding,
+                        Institution, TamperBackup, Upload, WorkflowNode, now)
 
 
 
@@ -23,10 +23,10 @@ from app.models import (Alert, Application, AuditEntry, FacultyToken, Finding, I
 async def lifespan(_: FastAPI):
     init_db()
     risk.model()
-    # Locally, and on a host without Postgres (SQLite in the instance's temp dir),
-    # an empty database is seeded at startup. With Postgres, seed once via
-    # POST /api/admin/reset so concurrent cold starts can't both seed.
-    if not config.ON_VERCEL or config.DB_URL.startswith("sqlite"):
+    # SQLite (local, or a host without Postgres) seeds an empty database at
+    # startup. A shared Postgres is seeded only by POST /api/admin/reset, so
+    # concurrent cold starts never seed it twice.
+    if IS_SQLITE:
         with session() as s:
             empty = s.exec(select(Institution)).first() is None
         if empty:
@@ -378,12 +378,45 @@ def model_info() -> dict:
 
 # --- Demo controls -------------------------------------------------------------------------------
 
+def _take_reset_lock() -> bool:
+    """Claim the single DemoLock row for 5 minutes; False if a reset already holds it."""
+    from datetime import timedelta
+    from sqlalchemy import or_, update
+    with session() as s:
+        if s.get(DemoLock, 1) is None:
+            s.add(DemoLock(id=1))
+            try:
+                s.commit()
+            except Exception:
+                s.rollback()
+        t = now()
+        res = s.execute(update(DemoLock).where(DemoLock.id == 1)
+                        .where(or_(DemoLock.held_until.is_(None), DemoLock.held_until < t))
+                        .values(held_until=t + timedelta(minutes=5)))
+        s.commit()
+        return res.rowcount == 1
+
+
+def _release_reset_lock() -> None:
+    with session() as s:
+        lock = s.get(DemoLock, 1)
+        if lock:
+            lock.held_until = None
+            s.add(lock)
+            s.commit()
+
+
 @app.post("/api/admin/reset")
 def reset_demo() -> dict:
-    from app.db import reset_db
+    """Empty the database and reseed the demo world. One at a time."""
     from app.seed import seed
-    reset_db()
-    seed()
+    if not _take_reset_lock():
+        raise HTTPException(409, "A reset is already running; it takes about 20 seconds.")
+    try:
+        clear_db()
+        seed()
+    finally:
+        _release_reset_lock()
     return {"ok": True}
 
 

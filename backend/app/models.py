@@ -138,3 +138,9 @@ class TamperBackup(SQLModel, table=True):
     """Demo only: the original payload of an audit row the tamper button edited."""
     entry_id: int = Field(primary_key=True)
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class DemoLock(SQLModel, table=True):
+    """One row; held while a demo reset runs so two resets can't interleave."""
+    id: int = Field(default=1, primary_key=True)
+    held_until: Optional[datetime] = None

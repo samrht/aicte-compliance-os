@@ -122,6 +122,8 @@ def canonical(entry: AuditEntry) -> bytes:
 
 def append(s: Session, actor: str, action: str, entity: str, payload: dict | None = None,
            ts: datetime | None = None) -> AuditEntry:
+    from app.db import serialize
+    serialize(s)
     entry = AuditEntry(actor=actor, action=action, entity=entity, payload=payload or {})
     if ts is not None:
         entry.ts = ts

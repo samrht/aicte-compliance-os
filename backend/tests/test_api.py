@@ -104,3 +104,13 @@ def test_sandbox_and_sweep(client):
     out = client.post("/api/sandbox/simulate", json={"overrides": {"FAC-RATIO": 15}}).json()
     assert out["compliant_after"] < out["compliant_before"] and out["flips"]
     assert client.post("/api/monitor/sweep").status_code == 200
+
+
+def test_second_reset_is_refused_while_one_runs(client):
+    from app.main import _release_reset_lock, _take_reset_lock
+    assert _take_reset_lock()
+    try:
+        r = client.post("/api/admin/reset")
+        assert r.status_code == 409
+    finally:
+        _release_reset_lock()

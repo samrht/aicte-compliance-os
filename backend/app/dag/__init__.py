@@ -24,7 +24,7 @@ from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app import audit, config, policy, risk
-from app.db import session
+from app.db import serialize, session
 from app.events import raise_alert
 from app.models import (Application, FacultyToken, Finding, Institution, PhotoHash,
                         Upload, WorkflowNode, now)
@@ -357,6 +357,7 @@ def _claim(s: Session, node_id: int, src: str, dst: str, **values) -> bool:
 
 def _execute(node_id: int) -> None:
     with session() as s:
+        serialize(s)              # steps write audit entries; keep them in commit order
         if not _claim(s, node_id, "running", "executing"):
             return
         node = s.get(WorkflowNode, node_id)
