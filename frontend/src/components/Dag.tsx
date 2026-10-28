@@ -62,7 +62,8 @@ export default function Dag({ nodes }: { nodes: WNode[] }) {
     <div className={wide ? "h-[300px]" : "h-[440px]"}>
       <ReactFlow key={nodes.length} nodes={layout(nodes)} edges={edges} nodeTypes={nodeTypes}
         fitView fitViewOptions={{ padding: 0.12, maxZoom: 1 }} maxZoom={1.2} nodesConnectable={false} elementsSelectable={false}
-        panOnDrag zoomOnScroll={false} preventScrolling={false} proOptions={{ hideAttribution: true }}>
+        nodesDraggable={false} panOnDrag={false} panOnScroll={false} zoomOnScroll={false} zoomOnPinch={false}
+        zoomOnDoubleClick={false} preventScrolling={false} proOptions={{ hideAttribution: true }}>
         <Background gap={20} size={1} color="#e3e7ee" />
       </ReactFlow>
     </div>

@@ -1,7 +1,6 @@
 import { RefreshCcw, Radar as RadarIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { Button, ErrorNote, PageTitle, Panel, Status, TierBadge, fmtDate, fmtHours, usePoll } from "../components/ui";
 
@@ -94,20 +93,25 @@ export default function Dashboard() {
 
         <div className="space-y-5">
           <Panel title="Average time to decision">
-            <div className="h-[150px]">
-              <ResponsiveContainer>
-                <BarChart data={turnaround} layout="vertical" margin={{ left: 0, right: 40 }}>
-                  <XAxis type="number" hide scale="log" domain={[1, "auto"]} allowDataOverflow />
-                  <YAxis type="category" dataKey="tier" width={70} tick={{ fontSize: 13, fill: "#3c4a66" }}
-                    tickFormatter={(t) => `${t[0].toUpperCase()}${t.slice(1)} risk`} />
-                  <Tooltip formatter={(v: any) => [fmtHours(Number(v)), "Average"]} />
-                  <Bar dataKey="hours" radius={3}>
-                    <LabelList dataKey="hours" position="right" fontSize={12} fill="#3c4a66" formatter={(v: any) => fmtHours(Number(v))} />
-                    {turnaround.map((t) => <Cell key={t.tier} fill={TIER_COLOUR[t.tier]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {(() => {
+              // Hours span 18 h to a month, so bars use a log scale; the label carries the real value.
+              const max = Math.max(...turnaround.map((r) => r.hours ?? 0), 1);
+              return (
+                <ul className="mb-3 space-y-2.5">
+                  {turnaround.map((r) => (
+                    <li key={r.tier} className="grid grid-cols-[90px_1fr_64px] items-center gap-3 text-[13px]">
+                      <span className="text-ink-2">{r.tier[0].toUpperCase() + r.tier.slice(1)} risk</span>
+                      <span className="h-2.5 rounded-full bg-paper">
+                        <span className="block h-full rounded-full" style={{
+                          width: r.hours ? `${Math.max(6, (100 * Math.log10(r.hours + 1)) / Math.log10(max + 1))}%` : 0,
+                          background: TIER_COLOUR[r.tier] }} />
+                      </span>
+                      <span className="text-right font-medium">{fmtHours(r.hours)}</span>
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
             <p className="text-[13px] text-ink-2">Low-risk campuses are ratified in batches, inside the 48-hour target.</p>
           </Panel>
           <Panel title="What drives risk" action={d.model.auc && <span className="text-[13px] text-ink-3">Holdout AUC {d.model.auc.toFixed(2)}</span>}>
