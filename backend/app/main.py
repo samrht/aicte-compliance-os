@@ -420,5 +420,24 @@ def reset_demo() -> dict:
 
 
 @app.get("/api/health")
-def health() -> dict:
-    return {"ok": True, "time": now().isoformat()}
+def health(db: bool = False) -> dict:
+    out = {"ok": True, "time": now().isoformat()}
+    if db:
+        import os
+        import re
+        import time
+        from sqlalchemy import text
+        from app.db import engine
+        host = engine.url.host or ""
+        out["function_region"] = os.environ.get("VERCEL_REGION")
+        out["db_region"] = (re.search(r"\.([a-z]{2}-[a-z]+-\d)\.", host) or [None, None])[1]
+        t0 = time.perf_counter()
+        with engine.connect() as conn:
+            out["connect_ms"] = round((time.perf_counter() - t0) * 1000)
+            laps = []
+            for _ in range(5):
+                t1 = time.perf_counter()
+                conn.execute(text("SELECT 1"))
+                laps.append(round((time.perf_counter() - t1) * 1000))
+            out["select1_ms"] = laps
+    return out
