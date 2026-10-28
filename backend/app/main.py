@@ -23,7 +23,10 @@ from app.models import (Alert, Application, AuditEntry, FacultyToken, Finding, I
 async def lifespan(_: FastAPI):
     init_db()
     risk.model()
-    if not config.ON_VERCEL:          # hosted: seed once via POST /api/admin/reset
+    # Locally, and on a host without Postgres (SQLite in the instance's temp dir),
+    # an empty database is seeded at startup. With Postgres, seed once via
+    # POST /api/admin/reset so concurrent cold starts can't both seed.
+    if not config.ON_VERCEL or config.DB_URL.startswith("sqlite"):
         with session() as s:
             empty = s.exec(select(Institution)).first() is None
         if empty:
